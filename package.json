@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Système de sonnerie Discord avec Master/Worker",
   "main": "master-bot.js",
+  "type": "module",
   "scripts": {
-    "start:master": "node master-bot.js",
     "start:worker-1": "node worker-1.js",
     "start:worker-2": "node worker-2.js",
     "start:worker-3": "node worker-3.js",
