@@ -1,8 +1,7 @@
 {
   "name": "discord-bell-bot",
   "version": "1.0.0",
-  "description": "Système de sonnerie Discord avec Master/Worker",
-  "main": "master-bot.js",
+  "description": "Système de sonnerie Discord avec Workers indépendants",
   "type": "module",
   "scripts": {
     "start:worker-1": "node worker-1.js",
