@@ -20,35 +20,4 @@
     "node": ">=18.0.0"
   }
 }
-```
 
----
-
-## 🚀 Déploiement sur Railway avec "Empty Service"
-
-### Pour le Worker 1 :
-
-1. Dans ton projet Railway, clique sur **"+ New"**
-2. Choisis **"Empty Service"**
-3. Donne-lui un nom : `Worker 1`
-4. Clique sur le service
-5. **Settings > Source** : Connecte ton repo GitHub `discord-bell-bot`
-6. **Variables** : Ajoute une seule variable :
-```
-   WORKER_1_TOKEN = [Token du bot Worker 1]
-   PORT = 3000
-```
-7. **Settings > Start Command** : `npm run start:worker-1`
-8. Deploy
-9. **Settings > Networking > Generate Domain**
-10. Copie l'URL + `/command`
-
-### Pour le Worker 2 :
-
-1. **"+ New" > "Empty Service"**
-2. Nom : `Worker 2`
-3. Connecte le même repo GitHub
-4. Variables :
-```
-   WORKER_2_TOKEN = [Token du bot Worker 2]
-   PORT = 3000
