@@ -1,0 +1,22 @@
+{
+  "name": "discord-bell-bot",
+  "version": "1.0.0",
+  "description": "Système de sonnerie Discord avec Master/Worker",
+  "main": "master-bot.js",
+  "scripts": {
+    "start:master": "node master-bot.js",
+    "start:worker": "node worker-bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@discordjs/voice": "^0.16.1",
+    "express": "^4.18.2",
+    "axios": "^1.6.5",
+    "ffmpeg-static": "^5.2.0",
+    "@discordjs/opus": "^0.9.0",
+    "sodium-native": "^4.0.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
