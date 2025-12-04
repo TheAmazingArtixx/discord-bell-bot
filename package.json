@@ -6,6 +6,7 @@
   "scripts": {
     "start:master": "node master-bot.js",
     "start:worker-1": "node worker-1.js",
+    "start:worker-2": "node worker-2.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
@@ -20,4 +21,3 @@
     "node": ">=18.0.0"
   }
 }
-
