@@ -1,121 +1,77 @@
 // worker-1.js
-const { Client, GatewayIntentBits } = require('discord.js');
-const {
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-} = require('@discordjs/voice');
-const express = require('express');
+import { Client, GatewayIntentBits } from "discord.js";
+import { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, VoiceConnectionStatus } from "@discordjs/voice";
 
 const WORKER_TOKEN = process.env.WORKER_TOKEN;
-const PORT = process.env.PORT || 3000;
+const GUILD_ID = process.env.GUILD_ID;
+const SOUND_URL = process.env.SOUND_URL;
 const WORKER_INDEX = 1;
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-  ],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
-const app = express();
-app.use(express.json());
-
-let currentConnection = null;
-
-async function playSoundInChannel(guildId, channelId, soundUrl) {
-  try {
-    console.log(`🎵 Worker ${WORKER_INDEX}: Rejoindre canal ${channelId}`);
-    
-    const guild = client.guilds.cache.get(guildId);
-    if (!guild) {
-      console.error('Serveur non trouvé');
-      return;
-    }
-    
-    const channel = guild.channels.cache.get(channelId);
-    if (!channel) {
-      console.error('Canal non trouvé');
-      return;
-    }
-    
-    if (currentConnection) {
-      currentConnection.destroy();
-      currentConnection = null;
-    }
-    
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: guild.id,
-      adapterCreator: guild.voiceAdapterCreator,
-    });
-    
-    currentConnection = connection;
-    
-    await new Promise((resolve, reject) => {
-      connection.on(VoiceConnectionStatus.Ready, resolve);
-      connection.on(VoiceConnectionStatus.Disconnected, reject);
-      setTimeout(() => reject(new Error('Timeout')), 5000);
-    });
-    
-    console.log(`✅ Worker ${WORKER_INDEX}: Connecté !`);
-    
-    const player = createAudioPlayer();
-    const resource = createAudioResource(soundUrl);
-    
-    connection.subscribe(player);
-    player.play(resource);
-    console.log(`🔊 Worker ${WORKER_INDEX}: Lecture en cours...`);
-    
-    await new Promise((resolve) => {
-      player.on(AudioPlayerStatus.Idle, () => {
-        console.log(`✅ Worker ${WORKER_INDEX}: Son terminé`);
-        resolve();
-      });
-      setTimeout(resolve, 10000);
-    });
-    
-    connection.destroy();
-    currentConnection = null;
-    console.log(`👋 Worker ${WORKER_INDEX}: Déconnecté`);
-    
-  } catch (error) {
-    console.error(`❌ Worker ${WORKER_INDEX} erreur:`, error.message);
-    if (currentConnection) {
-      currentConnection.destroy();
-      currentConnection = null;
-    }
-  }
+function getTimeUntilNextBell() {
+    const now = new Date();
+    const minutes = now.getMinutes();
+    let targetMinutes = minutes < 30 ? 30 : 60;
+    const targetTime = new Date(now);
+    targetTime.setMinutes(targetMinutes === 60 ? 0 : targetMinutes, 0, 0);
+    if (targetMinutes === 60) targetTime.setHours(targetTime.getHours() + 1);
+    return targetTime - now;
 }
 
-app.post('/command', async (req, res) => {
-  const { action, channelId, soundUrl, guildId } = req.body;
-  console.log(`📨 Worker ${WORKER_INDEX}: Ordre reçu - ${action}`);
-  
-  if (action === 'join') {
-    playSoundInChannel(guildId, channelId, soundUrl);
-    res.json({ success: true, message: 'Ordre reçu' });
-  } else {
-    res.json({ success: false, message: 'Action inconnue' });
-  }
-});
+function findAvailableChannel(guild) {
+    const activeChannels = guild.channels.cache.filter(ch => ch.type === 2 && ch.members.size > 0).map(ch => ch);
+    if (activeChannels.length === 0) return null;
+    const index = (WORKER_INDEX - 1) % activeChannels.length;
+    return activeChannels[index];
+}
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    worker: WORKER_INDEX,
-    connected: client.user ? true : false,
-  });
-});
+async function playBell(channel) {
+    try {
+        console.log(`🎵 Worker ${WORKER_INDEX}: Rejoindre ${channel.name}`);
+        const connection = joinVoiceChannel({
+            channelId: channel.id,
+            guildId: channel.guild.id,
+            adapterCreator: channel.guild.voiceAdapterCreator
+        });
+        await new Promise((resolve, reject) => {
+            connection.on(VoiceConnectionStatus.Ready, resolve);
+            setTimeout(() => reject(new Error('Timeout')), 10000);
+        });
+        console.log(`✅ Worker ${WORKER_INDEX}: Connecté`);
+        const player = createAudioPlayer();
+        const resource = createAudioResource(SOUND_URL);
+        connection.subscribe(player);
+        player.play(resource);
+        console.log(`🔊 Worker ${WORKER_INDEX}: Lecture...`);
+        await new Promise((resolve) => {
+            player.on(AudioPlayerStatus.Idle, resolve);
+            setTimeout(resolve, 15000);
+        });
+        console.log(`✅ Worker ${WORKER_INDEX}: Terminé`);
+        connection.destroy();
+    } catch (error) {
+        console.error(`❌ Worker ${WORKER_INDEX}:`, error.message);
+    }
+}
 
-client.once('ready', () => {
-  console.log(`🤖 Worker ${WORKER_INDEX} connecté: ${client.user.tag}`);
-});
+async function scheduleBell() {
+    const delay = getTimeUntilNextBell() - 5000;
+    console.log(`⏳ Worker ${WORKER_INDEX}: Prochaine sonnerie dans ${Math.floor(delay / 1000)}s`);
+    setTimeout(async () => {
+        const guild = client.guilds.cache.get(GUILD_ID);
+        if (!guild) return;
+        const channel = findAvailableChannel(guild);
+        if (channel) await playBell(channel);
+        scheduleBell();
+    }, delay);
+}
 
-app.listen(PORT, () => {
-  console.log(`🌐 Worker ${WORKER_INDEX} webhook sur port ${PORT}`);
+client.once("ready", () => {
+    console.log(`🤖 Worker ${WORKER_INDEX} connecté: ${client.user.tag}`);
+    scheduleBell();
 });
 
 client.login(WORKER_TOKEN);
