@@ -9,9 +9,9 @@ const {
 } = require('@discordjs/voice');
 const express = require('express');
 
-const WORKER_TOKEN = process.env.WORKER_1_TOKEN;
+const WORKER_TOKEN = process.env.WORKER_TOKEN;
 const PORT = process.env.PORT || 3000;
-const WORKER_INDEX = 0;
+const WORKER_INDEX = 1;
 
 const client = new Client({
   intents: [
@@ -115,4 +115,7 @@ client.once('ready', () => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🌐 Worker ${WORKER_INDEX} webhook su
+  console.log(`🌐 Worker ${WORKER_INDEX} webhook sur port ${PORT}`);
+});
+
+client.login(WORKER_TOKEN);
