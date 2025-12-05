@@ -36,20 +36,25 @@ async function playBell(channel) {
             guildId: channel.guild.id,
             adapterCreator: channel.guild.voiceAdapterCreator
         });
+        
         await new Promise((resolve, reject) => {
             connection.on(VoiceConnectionStatus.Ready, resolve);
+            connection.on(VoiceConnectionStatus.Disconnected, reject);
             setTimeout(() => reject(new Error('Timeout')), 10000);
         });
+        
         console.log(`✅ Worker ${WORKER_INDEX}: Connecté`);
         const player = createAudioPlayer();
         const resource = createAudioResource(SOUND_URL);
         connection.subscribe(player);
         player.play(resource);
         console.log(`🔊 Worker ${WORKER_INDEX}: Lecture...`);
+        
         await new Promise((resolve) => {
             player.on(AudioPlayerStatus.Idle, resolve);
             setTimeout(resolve, 15000);
         });
+        
         console.log(`✅ Worker ${WORKER_INDEX}: Terminé`);
         connection.destroy();
     } catch (error) {
@@ -69,7 +74,7 @@ async function scheduleBell() {
     }, delay);
 }
 
-client.once("ready", () => {
+client.once("clientReady", () => {
     console.log(`🤖 Worker ${WORKER_INDEX} connecté: ${client.user.tag}`);
     scheduleBell();
 });
