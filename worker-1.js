@@ -12,12 +12,21 @@ const client = new Client({
 });
 
 function getTimeUntilNextBell() {
+    const INTERVAL_MINUTES = 5; // Change ce nombre
+    
     const now = new Date();
     const minutes = now.getMinutes();
-    let targetMinutes = minutes < 30 ? 30 : 60;
+    
+    let targetMinutes = Math.ceil((minutes + 1) / INTERVAL_MINUTES) * INTERVAL_MINUTES;
+    if (targetMinutes >= 60) targetMinutes = targetMinutes - 60;
+    
     const targetTime = new Date(now);
-    targetTime.setMinutes(targetMinutes === 60 ? 0 : targetMinutes, 0, 0);
-    if (targetMinutes === 60) targetTime.setHours(targetTime.getHours() + 1);
+    targetTime.setMinutes(targetMinutes, 0, 0);
+    
+    if (targetMinutes <= minutes) {
+        targetTime.setHours(targetTime.getHours() + 1);
+    }
+    
     return targetTime - now;
 }
 
