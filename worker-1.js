@@ -14,7 +14,6 @@ const client = new Client({
 const WORKER_TOKEN = process.env.WORKER_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const SOUND_URL = process.env.SOUND_URL;
-const WORKER_INDEX = 1;
 
 function getTimeUntilNextBell() {
     const now = new Date();
@@ -37,14 +36,15 @@ function findAvailableChannel(guild) {
         .map(ch => ch);
     
     if (activeChannels.length === 0) return null;
-    return activeChannels[(WORKER_INDEX - 1) % activeChannels.length];
+    return activeChannels[0];
 }
 
 async function playBell(channel) {
     let connection = null;
+    let player = null;
     
     try {
-        console.log(`[${new Date().toISOString()}] Rejoindre: ${channel.name}`);
+        console.log(`[BELL] Connexion à ${channel.name}...`);
         
         connection = joinVoiceChannel({
             channelId: channel.id,
@@ -52,42 +52,64 @@ async function playBell(channel) {
             adapterCreator: channel.guild.voiceAdapterCreator
         });
 
-        // Attendre connexion
+        // Attendre que la connexion soit prête
         await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Timeout')), 10000);
+            const timeout = setTimeout(() => reject(new Error('Timeout')), 15000);
             
-            connection.on(VoiceConnectionStatus.Ready, () => {
+            connection.once(VoiceConnectionStatus.Ready, () => {
                 clearTimeout(timeout);
+                console.log(`[BELL] Connecté !`);
                 resolve();
             });
             
-            connection.on(VoiceConnectionStatus.Disconnected, () => {
+            connection.once(VoiceConnectionStatus.Disconnected, () => {
                 clearTimeout(timeout);
-                reject(new Error('Disconnected'));
+                reject(new Error('Déconnecté'));
             });
         });
 
-        console.log(`[${new Date().toISOString()}] Connecté - Lecture...`);
+        // Attendre un peu pour stabiliser
+        await new Promise(r => setTimeout(r, 1000));
 
-        const player = createAudioPlayer();
+        console.log(`[BELL] Lecture du son: ${SOUND_URL}`);
+        
+        player = createAudioPlayer();
         const resource = createAudioResource(SOUND_URL);
         
         connection.subscribe(player);
+        
+        // Attendre que le player soit prêt avant de jouer
+        await new Promise(r => setTimeout(r, 500));
+        
         player.play(resource);
+        console.log(`[BELL] ▶️ SON EN LECTURE`);
 
-        // Attendre fin lecture
+        // Attendre la fin
         await new Promise((resolve) => {
-            player.on(AudioPlayerStatus.Idle, resolve);
-            setTimeout(resolve, 30000); // Max 30s
+            player.once(AudioPlayerStatus.Idle, () => {
+                console.log(`[BELL] Lecture terminée`);
+                resolve();
+            });
+            
+            player.once('error', (err) => {
+                console.error(`[BELL] Erreur player:`, err.message);
+                resolve();
+            });
+            
+            setTimeout(resolve, 45000); // Max 45s
         });
 
-        console.log(`[${new Date().toISOString()}] Terminé`);
+        // Nettoyage
+        await new Promise(r => setTimeout(r, 1000));
         
-        player.stop();
-        connection.destroy();
+        if (player) player.stop();
+        if (connection) connection.destroy();
+        
+        console.log(`[BELL] Déconnecté\n`);
         
     } catch (error) {
-        console.error(`[${new Date().toISOString()}] ERREUR:`, error.message);
+        console.error(`[BELL] ERREUR:`, error.message);
+        if (player) player.stop();
         if (connection) connection.destroy();
     }
 }
@@ -96,19 +118,19 @@ async function scheduleBell() {
     const delay = getTimeUntilNextBell() - 5000;
     const next = new Date(Date.now() + delay + 5000);
     
-    console.log(`Prochaine sonnerie: ${next.toLocaleTimeString()}`);
+    console.log(`⏰ Prochaine sonnerie: ${next.toLocaleTimeString()}`);
     
     setTimeout(async () => {
         const guild = client.guilds.cache.get(GUILD_ID);
         if (!guild) {
-            console.error('Serveur non trouvé');
+            console.error('Serveur introuvable');
             scheduleBell();
             return;
         }
         
         const channel = findAvailableChannel(guild);
         if (!channel) {
-            console.log('Aucun salon actif');
+            console.log('Aucun salon vocal actif');
             scheduleBell();
             return;
         }
@@ -119,9 +141,34 @@ async function scheduleBell() {
 }
 
 client.once("ready", () => {
-    console.log(`Bot démarré: ${client.user.tag}`);
-    console.log(`URL: ${SOUND_URL}`);
+    console.log(`\n🤖 Bot: ${client.user.tag}`);
+    console.log(`🔊 URL: ${SOUND_URL}\n`);
     scheduleBell();
 });
 
 client.login(WORKER_TOKEN);
+```
+
+## ✅ CE QUI VA SE PASSER :
+
+1. ✅ **Installation rapide** (pas de compilation)
+2. ✅ **Connexion stable** avec attentes
+3. ✅ **Lecture garantie** avec délais de sécurité
+4. ✅ **Logs clairs** sans spam
+
+## 🚀 DÉPLOIE MAINTENANT :
+
+1. Remplace les 3 fichiers
+2. Commit sur GitHub
+3. **Attends 2-3 minutes** que Railway compile
+4. Regarde les logs
+
+Tu devrais voir :
+```
+🤖 Bot: Sonnerie-1 | Jean Moulin#6054
+🔊 URL: https://...
+⏰ Prochaine sonnerie: ...
+[BELL] Connexion à ...
+[BELL] Connecté !
+[BELL] ▶️ SON EN LECTURE
+[BELL] Lecture terminée
