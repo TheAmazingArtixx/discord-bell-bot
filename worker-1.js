@@ -6,9 +6,15 @@ import {
     createAudioResource, 
     AudioPlayerStatus, 
     VoiceConnectionStatus,
-    entersState,
-    StreamType
+    entersState
 } from "@discordjs/voice";
+import { createReadStream } from "fs";
+import { pipeline } from "stream";
+import { promisify } from "util";
+import https from "https";
+import http from "http";
+
+const streamPipeline = promisify(pipeline);
 
 const WORKER_TOKEN = process.env.WORKER_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -19,12 +25,9 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
 });
 
-let logInterval = null;
-
 function getTimeUntilNextBell() {
     const now = new Date();
     const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
     
     let targetMinutes = Math.ceil((minutes + 1) / 5) * 5;
     if (targetMinutes >= 60) targetMinutes = 0;
@@ -46,14 +49,33 @@ function findAvailableChannel(guild) {
     return activeChannels[index];
 }
 
+// Fonction pour télécharger l'audio en stream
+function getAudioStream(url) {
+    return new Promise((resolve, reject) => {
+        const protocol = url.startsWith('https') ? https : http;
+        
+        protocol.get(url, (response) => {
+            if (response.statusCode === 200) {
+                console.log(`✅ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Stream audio récupéré (${response.headers['content-type']})`);
+                resolve(response);
+            } else {
+                reject(new Error(`HTTP ${response.statusCode}`));
+            }
+        }).on('error', reject);
+    });
+}
+
 async function playBell(channel) {
     let connection = null;
-    let startTime = Date.now();
+    let player = null;
+    const startTime = Date.now();
     
     try {
-        console.log(`🎵 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Rejoindre ${channel.name}`);
-        console.log(`🔗 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: URL du son: ${SOUND_URL}`);
+        console.log(`\n🎵 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: === DÉBUT SONNERIE ===`);
+        console.log(`🔗 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Canal: ${channel.name}`);
+        console.log(`🔗 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: URL: ${SOUND_URL}`);
         
+        // Connexion vocale
         connection = joinVoiceChannel({
             channelId: channel.id,
             guildId: channel.guild.id,
@@ -62,67 +84,86 @@ async function playBell(channel) {
             selfMute: false
         });
         
-        // Attendre que la connexion soit prête
-        console.log(`⏳ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Attente de connexion...`);
-        await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
-        console.log(`✅ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Connecté à ${channel.name}`);
+        console.log(`⏳ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Connexion en cours...`);
         
-        // Créer le player et la ressource
-        const player = createAudioPlayer();
-        const resource = createAudioResource(SOUND_URL, {
-            inputType: StreamType.Arbitrary,
+        // Attendre que la connexion soit établie
+        await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+        console.log(`✅ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Connexion établie !`);
+        
+        // Petit délai pour stabiliser la connexion
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Créer le player
+        player = createAudioPlayer();
+        
+        // Gestion des événements du player
+        player.on(AudioPlayerStatus.Playing, () => {
+            console.log(`▶️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: SON EN LECTURE !`);
+        });
+        
+        player.on(AudioPlayerStatus.Idle, () => {
+            console.log(`⏹️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Lecture terminée`);
+        });
+        
+        player.on('error', error => {
+            console.error(`❌ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Erreur player:`, error.message);
+        });
+        
+        // Souscrire le player AVANT de charger l'audio
+        const subscription = connection.subscribe(player);
+        console.log(`🔗 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Player connecté`);
+        
+        // Récupérer le stream audio
+        console.log(`📥 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Téléchargement audio...`);
+        const stream = await getAudioStream(SOUND_URL);
+        
+        // Créer la ressource audio depuis le stream
+        const resource = createAudioResource(stream, {
             inlineVolume: true
         });
         
         if (resource.volume) {
-            resource.volume.setVolume(1.0); // Volume à 100%
+            resource.volume.setVolume(1.0);
         }
         
-        console.log(`🔊 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Ressource audio créée`);
+        console.log(`🎧 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Ressource créée, démarrage...`);
         
-        // Souscrire le player à la connexion
-        connection.subscribe(player);
-        console.log(`🔗 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Player souscrit à la connexion`);
-        
-        // Jouer le son
+        // Jouer !
         player.play(resource);
-        console.log(`▶️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Lecture démarrée !`);
         
-        // Attendre la fin de la lecture
-        await new Promise((resolve, reject) => {
-            player.on(AudioPlayerStatus.Playing, () => {
-                console.log(`🎶 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Audio en cours de lecture...`);
-            });
+        // Attendre la fin (max 60 secondes)
+        await new Promise((resolve) => {
+            const checkInterval = setInterval(() => {
+                if (player.state.status === AudioPlayerStatus.Idle) {
+                    clearInterval(checkInterval);
+                    resolve();
+                }
+            }, 500);
             
-            player.on(AudioPlayerStatus.Idle, () => {
-                console.log(`⏹️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Lecture terminée`);
-                resolve();
-            });
-            
-            player.on('error', (error) => {
-                console.error(`❌ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Erreur player:`, error);
-                reject(error);
-            });
-            
-            // Timeout de sécurité
             setTimeout(() => {
-                console.log(`⏱️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Timeout atteint`);
+                clearInterval(checkInterval);
                 resolve();
-            }, 30000);
+            }, 60000);
         });
         
         const totalTime = Math.floor((Date.now() - startTime) / 1000);
-        console.log(`✅ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Sonnerie jouée dans ${channel.name} (${totalTime}s)`);
+        console.log(`✅ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: === FIN SONNERIE (${totalTime}s) ===\n`);
         
-        console.log(`👋 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Déconnexion...`);
-        connection.destroy();
+        // Nettoyage
+        if (subscription) subscription.unsubscribe();
+        if (player) player.stop();
+        if (connection) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            connection.destroy();
+        }
         
     } catch (error) {
         const totalTime = Math.floor((Date.now() - startTime) / 1000);
-        console.error(`❌ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Erreur après ${totalTime}s:`, error.message);
-        if (connection) {
-            connection.destroy();
-        }
+        console.error(`❌ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: ERREUR après ${totalTime}s:`);
+        console.error(error);
+        
+        if (player) player.stop();
+        if (connection) connection.destroy();
     }
 }
 
@@ -134,18 +175,18 @@ async function scheduleBell() {
     console.log(`⏰ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Prochaine sonnerie à ${nextBellTime.toLocaleTimeString()} (dans ${delaySeconds}s)`);
     
     setTimeout(async () => {
-        console.log(`🔔 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: DÉCLENCHEMENT !`);
+        console.log(`🔔 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: ⚡ DÉCLENCHEMENT !`);
         
         const guild = client.guilds.cache.get(GUILD_ID);
         if (!guild) {
-            console.error(`❌ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Serveur non trouvé`);
+            console.error(`❌ Worker ${WORKER_INDEX}: Serveur non trouvé`);
             scheduleBell();
             return;
         }
         
         const channel = findAvailableChannel(guild);
         if (!channel) {
-            console.log(`⚠️ [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX}: Aucun salon vocal actif`);
+            console.log(`⚠️ Worker ${WORKER_INDEX}: Aucun salon vocal actif`);
             scheduleBell();
             return;
         }
@@ -156,11 +197,10 @@ async function scheduleBell() {
 }
 
 client.once("ready", () => {
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`🤖 [${new Date().toLocaleTimeString()}] Worker ${WORKER_INDEX} DÉMARRÉ`);
-    console.log(`   Bot: ${client.user.tag}`);
-    console.log(`   Sound URL: ${SOUND_URL}`);
-    console.log(`${'='.repeat(60)}\n`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`🤖 Worker ${WORKER_INDEX} DÉMARRÉ - ${client.user.tag}`);
+    console.log(`🔊 Sound URL: ${SOUND_URL}`);
+    console.log(`${'='.repeat(70)}\n`);
     scheduleBell();
 });
 
