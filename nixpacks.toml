@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs_22"]
+nixPkgs = ["nodejs_18", "python3", "pkg-config", "libsodium"]
 
 [phases.install]
-cmds = ["npm ci --omit=dev || npm install --omit=dev"]
+cmds = ["npm install --legacy-peer-deps"]
 
 [start]
 cmd = "npm run start:worker-1"
