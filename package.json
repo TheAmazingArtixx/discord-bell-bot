@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node worker-1.js"
+    "start:worker-1": "node worker-1.js",
+    "start:worker-2": "node worker-2.js",
+    "start:worker-3": "node worker-3.js",
+    "start:worker-4": "node worker-4.js",
+    "start:worker-5": "node worker-5.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
